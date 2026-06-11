@@ -2,9 +2,9 @@ name: SSDLC Actions
 
 on:
   push:
-    branches: ["main", "master"]
+    branches: [ $default-branch ]
   pull_request:
-    branches: ["**"]
+    branches: [ $default-branch ]
 
 permissions: {}
 
