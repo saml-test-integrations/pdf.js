@@ -201,6 +201,15 @@ pdfjs-thumb-page-title =
 #   $page (Number) - the page number
 pdfjs-thumb-page-canvas =
     .aria-label = { $page } ページの縮小版
+# Variables:
+#   $page (Number) - the page number
+pdfjs-thumb-page-checkbox1 =
+    .title = { $page } ページを選択します
+# Variables:
+#   $page (Number) - the page number
+#   $total (Number) - the number of pages
+pdfjs-thumb-page-title1 =
+    .title = { $page } / { $total } ページ
 
 ## Find panel button title and messages
 
@@ -625,20 +634,22 @@ pdfjs-editor-add-comment-button =
 ##  - layers.
 ## The thumbnails view is used to edit the pdf: remove/insert pages, ...
 
-pdfjs-toggle-views-manager-button =
-    .title = サイドバーを切り替えます
 pdfjs-toggle-views-manager-notification-button =
     .title = サイドバーを切り替えます (文書に含まれるサムネイル、アウトライン、添付データ、レイヤー)
-pdfjs-toggle-views-manager-button-label = サイドバーを切り替え
+pdfjs-toggle-views-manager-button1-label = ページを管理
 pdfjs-views-manager-sidebar =
     .aria-label = サイドバー
+pdfjs-views-manager-sidebar-resizer =
+    .aria-label = サイドバーの幅変更
 pdfjs-views-manager-view-selector-button =
     .title = ビュー
 pdfjs-views-manager-view-selector-button-label = ビュー
 pdfjs-views-manager-pages-title = ページ
-pdfjs-views-manager-outlines-title = 文書のアウトライン
+pdfjs-views-manager-outlines-title1 = 文書のアウトライン
+    .title = 文書のアウトライン (ダブルクリックですべての項目を展開/折りたたみ)
 pdfjs-views-manager-attachments-title = 添付データ
-pdfjs-views-manager-layers-title = レイヤー
+pdfjs-views-manager-layers-title1 = レイヤー
+    .title = レイヤー (ダブルクリックですべてのレイヤーを既定状態にリセット)
 pdfjs-views-manager-pages-option-label = ページ
 pdfjs-views-manager-outlines-option-label = 文書のアウトライン
 pdfjs-views-manager-attachments-option-label = 添付データ
@@ -654,7 +665,7 @@ pdfjs-views-manager-pages-status-action-button-label = 管理
 pdfjs-views-manager-pages-status-copy-button-label = コピー
 pdfjs-views-manager-pages-status-cut-button-label = 切り取り
 pdfjs-views-manager-pages-status-delete-button-label = 削除
-pdfjs-views-manager-pages-status-save-as-button-label = 名前を付けて保存...
+pdfjs-views-manager-pages-status-export-selected-button-label = 選択したページをエクスポート...
 # Variables:
 #   $count (Number) - the number of selected pages to be cut.
 pdfjs-views-manager-status-undo-cut-label = { $count } ページを切り取りしました
@@ -671,9 +682,23 @@ pdfjs-views-manager-status-warning-copy-label = コピーできませんでし�
 pdfjs-views-manager-status-warning-delete-label = 削除できませんでした。ページを更新してもう一度試してください。
 pdfjs-views-manager-status-warning-save-label = 保存できませんでした。ページを更新してもう一度試してください。
 pdfjs-views-manager-status-undo-button-label = 元に戻す
+pdfjs-views-manager-status-done-button-label = 完了
 pdfjs-views-manager-status-close-button =
     .title = 閉じる
 pdfjs-views-manager-status-close-button-label = 閉じる
+pdfjs-views-manager-paste-button-label = 貼り付け
+pdfjs-views-manager-paste-button-before =
+    .title = 最初のページの前に貼り付けます
+# Variables:
+#   $page (Number) - the page number after which the paste button is.
+pdfjs-views-manager-paste-button-after =
+    .title = { $page } ページの後に貼り付けます
+# Badge used to promote a new feature in the UI, keep it as short as possible.
+# It's spelled uppercase for English, but it can be translated as usual.
+pdfjs-new-badge-content = 新機能
+pdfjs-views-manager-waiting-for-file = ファイルをアップロードしています...
+pdfjs-toggle-views-manager-button1 =
+    .title = ページを管理
 
 ## Main menu for adding/removing signatures
 

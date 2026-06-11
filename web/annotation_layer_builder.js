@@ -15,7 +15,7 @@
 
 /** @typedef {import("../src/display/api").PDFPageProxy} PDFPageProxy */
 // eslint-disable-next-line max-len
-/** @typedef {import("../src/display/display_utils").PageViewport} PageViewport */
+/** @typedef {import("../src/display/page_viewport").PageViewport} PageViewport */
 // eslint-disable-next-line max-len
 /** @typedef {import("../src/display/annotation_storage").AnnotationStorage} AnnotationStorage */
 // eslint-disable-next-line max-len
@@ -35,6 +35,7 @@ import {
   setLayerDimensions,
   Util,
 } from "pdfjs-lib";
+import { internalOpt } from "./internal_evt.js";
 import { PresentationModeState } from "./ui_utils.js";
 
 /**
@@ -63,6 +64,7 @@ import { PresentationModeState } from "./ui_utils.js";
  * @property {PageViewport} viewport
  * @property {string} [intent] - The default value is "display".
  * @property {StructTreeLayerBuilder} [structTreeLayer]
+ * @property {Promise} [optionalContentConfigPromise]
  */
 
 class AnnotationLayerBuilder {
@@ -70,11 +72,9 @@ class AnnotationLayerBuilder {
 
   #commentManager = null;
 
-  #externalHide = false;
-
   #onAppend = null;
 
-  #eventAbortController = null;
+  #eventAC = null;
 
   #linksInjected = false;
 
@@ -125,8 +125,15 @@ class AnnotationLayerBuilder {
    * @returns {Promise<void>} A promise that is resolved when rendering of the
    *   annotations is complete.
    */
-  async render({ viewport, intent = "display", structTreeLayer = null }) {
+  async render({
+    viewport,
+    intent = "display",
+    structTreeLayer = null,
+    optionalContentConfigPromise = null,
+  }) {
     if (this.div) {
+      const optionalContentConfig = await optionalContentConfigPromise;
+
       if (this._cancelled || !this.annotationLayer) {
         return;
       }
@@ -134,15 +141,18 @@ class AnnotationLayerBuilder {
       // transformation matrices.
       this.annotationLayer.update({
         viewport: viewport.clone({ dontFlip: true }),
+        optionalContentConfig,
       });
       return;
     }
 
-    const [annotations, hasJSActions, fieldObjects] = await Promise.all([
-      this.pdfPage.getAnnotations({ intent }),
-      this._hasJSActionsPromise,
-      this._fieldObjectsPromise,
-    ]);
+    const [annotations, hasJSActions, fieldObjects, optionalContentConfig] =
+      await Promise.all([
+        this.pdfPage.getAnnotations({ intent }),
+        this._hasJSActionsPromise,
+        this._fieldObjectsPromise,
+        optionalContentConfigPromise,
+      ]);
     if (this._cancelled) {
       return;
     }
@@ -169,6 +179,7 @@ class AnnotationLayerBuilder {
       enableScripting: this.enableScripting,
       hasJSActions,
       fieldObjects,
+      optionalContentConfig,
     });
 
     this.#annotations = annotations;
@@ -178,15 +189,15 @@ class AnnotationLayerBuilder {
     if (this.linkService.isInPresentationMode) {
       this.#updatePresentationModeState(PresentationModeState.FULLSCREEN);
     }
-    if (!this.#eventAbortController) {
-      this.#eventAbortController = new AbortController();
+    if (!this.#eventAC) {
+      this.#eventAC = new AbortController();
 
-      this._eventBus?._on(
+      this._eventBus?.on(
         "presentationmodechanged",
         evt => {
           this.#updatePresentationModeState(evt.state);
         },
-        { signal: this.#eventAbortController.signal }
+        { signal: this.#eventAC.signal, ...internalOpt }
       );
     }
   }
@@ -209,12 +220,11 @@ class AnnotationLayerBuilder {
   cancel() {
     this._cancelled = true;
 
-    this.#eventAbortController?.abort();
-    this.#eventAbortController = null;
+    this.#eventAC?.abort();
+    this.#eventAC = null;
   }
 
-  hide(internal = false) {
-    this.#externalHide = !internal;
+  hide() {
     if (!this.div) {
       return;
     }
@@ -250,10 +260,6 @@ class AnnotationLayerBuilder {
     }
 
     await this.annotationLayer.addLinkAnnotations(newLinks);
-    // Don't show the annotation layer if it was explicitly hidden previously.
-    if (!this.#externalHide) {
-      this.div.hidden = false;
-    }
   }
 
   #updatePresentationModeState(state) {

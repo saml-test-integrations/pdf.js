@@ -14,25 +14,12 @@
  */
 
 if (typeof PDFJSDev === "undefined" || PDFJSDev.test("GENERIC")) {
-  // eslint-disable-next-line no-var
-  var compatParams = new Map();
-  if (
-    typeof PDFJSDev !== "undefined" &&
-    PDFJSDev.test("LIB") &&
-    !globalThis.navigator?.language
-  ) {
-    globalThis.navigator = {
-      language: "en-US",
-      maxTouchPoints: 1,
-      platform: "",
-      userAgent: "",
-    };
-  }
+  var compatParams = new Map(); // eslint-disable-line no-var
   const { maxTouchPoints, platform, userAgent } = navigator;
 
   const isAndroid = /Android/.test(userAgent);
   const isIOS =
-    /\b(iPad|iPhone|iPod)(?=;)/.test(userAgent) ||
+    /\b(?:iPad|iPhone|iPod)(?=;)/.test(userAgent) ||
     (platform === "MacIntel" && maxTouchPoints > 1);
 
   // Limit canvas size to 5 mega-pixels on mobile.
@@ -245,9 +232,19 @@ const defaultOptions = {
     value: typeof PDFJSDev === "undefined" || PDFJSDev.test("TESTING"),
     kind: OptionKind.VIEWER + OptionKind.PREFERENCE,
   },
+  enableMerge: {
+    /** @type {boolean} */
+    value: typeof PDFJSDev === "undefined" || PDFJSDev.test("TESTING"),
+    kind: OptionKind.VIEWER + OptionKind.PREFERENCE,
+  },
   enableNewAltTextWhenAddingImage: {
     /** @type {boolean} */
     value: true,
+    kind: OptionKind.VIEWER + OptionKind.PREFERENCE,
+  },
+  enableNewBadge: {
+    /** @type {boolean} */
+    value: typeof PDFJSDev === "undefined" || PDFJSDev.test("MOZCENTRAL"),
     kind: OptionKind.VIEWER + OptionKind.PREFERENCE,
   },
   enableOptimizedPartialRendering: {
@@ -323,10 +320,15 @@ const defaultOptions = {
         : "./images/",
     kind: OptionKind.VIEWER,
   },
+  enableSelectionRendering: {
+    /** @type {boolean} */
+    value: true,
+    kind: OptionKind.VIEWER + OptionKind.PREFERENCE,
+  },
   imagesRightClickMinSize: {
     /** @type {number} */
     value:
-      typeof PDFJSDev !== "undefined" &&
+      typeof PDFJSDev === "undefined" ||
       // Firefox mobile does not support right-clicking on images,
       // see https://bugzilla.mozilla.org/show_bug.cgi?id=2014081.
       // This option is disabled by default outside of MOZCENTRAL
@@ -365,6 +367,11 @@ const defaultOptions = {
   pdfBugEnabled: {
     /** @type {boolean} */
     value: typeof PDFJSDev === "undefined" || PDFJSDev.test("TESTING"),
+    kind: OptionKind.VIEWER + OptionKind.PREFERENCE,
+  },
+  postMessageAfterPrintCallback: {
+    /** @type {boolean} */
+    value: false,
     kind: OptionKind.VIEWER + OptionKind.PREFERENCE,
   },
   printResolution: {
@@ -452,8 +459,13 @@ const defaultOptions = {
   },
   enableHWA: {
     /** @type {boolean} */
-    value: typeof PDFJSDev !== "undefined" && !PDFJSDev.test("MOZCENTRAL"),
-    kind: OptionKind.API + OptionKind.VIEWER + OptionKind.PREFERENCE,
+    value: true,
+    kind: OptionKind.API + OptionKind.PREFERENCE,
+  },
+  enableWebGPU: {
+    /** @type {boolean} */
+    value: true,
+    kind: OptionKind.API + OptionKind.PREFERENCE,
   },
   enableXfa: {
     /** @type {boolean} */
@@ -474,11 +486,6 @@ const defaultOptions = {
         : PDFJSDev.test("MOZCENTRAL")
           ? "resource://pdf.js/web/iccs/"
           : "../web/iccs/",
-    kind: OptionKind.API,
-  },
-  isEvalSupported: {
-    /** @type {boolean} */
-    value: true,
     kind: OptionKind.API,
   },
   isOffscreenCanvasSupported: {

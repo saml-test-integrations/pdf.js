@@ -14,6 +14,7 @@
  */
 
 import { Dict, Name, Ref } from "../../src/core/primitives.js";
+import { FunctionType, PDFFunctionFactory } from "../../src/core/function.js";
 import {
   GlobalColorSpaceCache,
   LocalColorSpaceCache,
@@ -21,7 +22,6 @@ import {
 import { Stream, StringStream } from "../../src/core/stream.js";
 import { ColorSpace } from "../../src/core/colorspace.js";
 import { ColorSpaceUtils } from "../../src/core/colorspace_utils.js";
-import { PDFFunctionFactory } from "../../src/core/function.js";
 import { XRefMock } from "./test_utils.js";
 
 describe("colorspace", function () {
@@ -836,19 +836,18 @@ describe("colorspace", function () {
 
     it("should handle the case when cs is an array", function () {
       const fnDict = new Dict();
-      fnDict.set("FunctionType", 4);
+      fnDict.set("FunctionType", FunctionType.POSTSCRIPT_CALCULATOR);
       fnDict.set("Domain", [0.0, 1.0]);
       fnDict.set("Range", [0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0]);
       fnDict.set("Length", 58);
 
-      let fn = new StringStream(
+      const fn = new StringStream(
         "{ dup 0.84 mul " +
           "exch 0.00 exch " +
           "dup 0.44 mul " +
-          "exch 0.21 mul }"
+          "exch 0.21 mul }",
+        fnDict
       );
-      fn = new Stream(fn.bytes, 0, 58, fnDict);
-
       const fnRef = Ref.get(10, 0);
 
       const cs = [

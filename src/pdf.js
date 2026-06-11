@@ -20,7 +20,7 @@
 /** @typedef {import("./display/api").PDFDocumentProxy} PDFDocumentProxy */
 /** @typedef {import("./display/api").PDFPageProxy} PDFPageProxy */
 /** @typedef {import("./display/api").RenderTask} RenderTask */
-/** @typedef {import("./display/display_utils").PageViewport} PageViewport */
+/** @typedef {import("./display/page_viewport").PageViewport} PageViewport */
 
 import {
   AbortException,
@@ -36,9 +36,9 @@ import {
   makeArr,
   makeMap,
   makeObj,
-  MathClamp,
   normalizeUnicode,
   OPS,
+  PasswordException,
   PasswordResponses,
   PermissionFlag,
   ResponseException,
@@ -55,7 +55,7 @@ import {
   getFilenameFromUrl,
   getPdfFilenameFromUrl,
   getRGB,
-  getXfaPageViewport,
+  getRGBA,
   isDataScheme,
   isPdfFile,
   noContextMenu,
@@ -84,6 +84,7 @@ import { DrawLayer } from "./display/draw_layer.js";
 import { GlobalWorkerOptions } from "./display/worker_options.js";
 import { HighlightOutliner } from "./display/editor/drawers/highlight.js";
 import { isValidExplicitDest } from "./display/api_utils.js";
+import { MathClamp } from "./shared/math_clamp.js";
 import { SignatureExtractor } from "./display/editor/drawers/signaturedraw.js";
 import { TextLayer } from "./display/text_layer.js";
 import { TextLayerImages } from "./display/text_layer_images.js";
@@ -119,8 +120,8 @@ globalThis.pdfjsLib = {
   getFilenameFromUrl,
   getPdfFilenameFromUrl,
   getRGB,
+  getRGBA,
   getUuid,
-  getXfaPageViewport,
   GlobalWorkerOptions,
   ImageKind,
   InvalidPDFException,
@@ -135,6 +136,7 @@ globalThis.pdfjsLib = {
   normalizeUnicode,
   OPS,
   OutputScale,
+  PasswordException,
   PasswordResponses,
   PDFDataRangeTransport,
   PDFDateString,
@@ -182,8 +184,8 @@ export {
   getFilenameFromUrl,
   getPdfFilenameFromUrl,
   getRGB,
+  getRGBA,
   getUuid,
-  getXfaPageViewport,
   GlobalWorkerOptions,
   ImageKind,
   InvalidPDFException,
@@ -198,6 +200,7 @@ export {
   normalizeUnicode,
   OPS,
   OutputScale,
+  PasswordException,
   PasswordResponses,
   PDFDataRangeTransport,
   PDFDateString,

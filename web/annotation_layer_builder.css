@@ -138,6 +138,17 @@
     }
   }
 
+  /* A field rendered to its own canvas shows that canvas and keeps its editable
+     element hidden. Once the field is modified the canvas is outdated, so it's
+     hidden and the element is shown instead. */
+  .hasOwnCanvas:not(.sandboxModified) :is(input, textarea) {
+    display: none;
+  }
+
+  .hasOwnCanvas.sandboxModified canvas.annotationContent {
+    display: none;
+  }
+
   .textLayer.selecting ~ & section {
     pointer-events: none;
   }
@@ -281,19 +292,25 @@
   }
 
   .textWidgetAnnotation input.comb {
+    --comb-width: 0px;
+    --comb-letter-spacing: calc(var(--comb-width) - 1ch);
+
     font-family: monospace;
-    padding-left: 2px;
-    padding-right: 0;
+    letter-spacing: var(--comb-letter-spacing);
+    overflow-x: hidden;
+    padding: 0;
+    text-indent: calc(
+      var(--comb-offset, 0) * var(--comb-width) + var(--comb-letter-spacing) / 2
+    );
   }
 
   .textWidgetAnnotation input.comb:focus {
-    /*
-     * Letter spacing is placed on the right side of each character. Hence, the
-     * letter spacing of the last character may be placed outside the visible
-     * area, causing horizontal scrolling. We avoid this by extending the width
-     * when the element has focus and revert this when it loses focus.
-     */
-    width: 103%;
+    background-image: repeating-linear-gradient(
+      to right,
+      transparent 0 calc(var(--comb-width) - 1px),
+      var(--input-focus-border-color) calc(var(--comb-width) - 1px)
+        var(--comb-width)
+    );
   }
 
   .buttonWidgetAnnotation:is(.checkBox, .radioButton) input {

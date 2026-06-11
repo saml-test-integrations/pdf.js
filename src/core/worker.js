@@ -21,7 +21,6 @@ import {
   isNodeJS,
   PasswordException,
   setVerbosityLevel,
-  stringToPDFString,
   VerbosityLevel,
   warn,
 } from "../shared/util.js";
@@ -38,6 +37,7 @@ import { clearGlobalCaches } from "./cleanup_helper.js";
 import { incrementalUpdate } from "./writer.js";
 import { PDFEditor } from "./editor/pdf_editor.js";
 import { PDFWorkerStream } from "./worker_stream.js";
+import { stringToPDFString } from "./string_utils.js";
 import { StructTreeRoot } from "./struct_tree.js";
 
 class WorkerTask {
@@ -98,6 +98,12 @@ class WorkerMessageHandler {
     });
 
     handler.on("GetDocRequest", data => this.createDocumentHandler(data, port));
+
+    if (typeof PDFJSDev === "undefined" || PDFJSDev.test("TESTING")) {
+      handler.on("GetWorkerCoverage", function () {
+        return globalThis.__coverage__ ?? {};
+      });
+    }
   }
 
   static createDocumentHandler(docParams, port) {
@@ -127,7 +133,7 @@ class WorkerMessageHandler {
       // the `{Object, Array}.prototype` has been *incorrectly* extended.
       //
       // PLEASE NOTE: We do *not* want to slow down font parsing by adding
-      //              `hasOwnProperty` checks all over the code-base.
+      //              `Object.hasOwn` checks all over the code-base.
       const buildMsg = (type, prop) =>
         `The \`${type}.prototype\` contains unexpected enumerable property ` +
         `"${prop}", thus breaking e.g. \`for...in\` iteration of ${type}s.`;
@@ -196,7 +202,6 @@ class WorkerMessageHandler {
       password,
       disableAutoFetch,
       rangeChunkSize,
-      length,
       docBaseUrl,
       enableXfa,
       evaluatorOptions,
@@ -209,7 +214,7 @@ class WorkerMessageHandler {
         enableXfa,
         evaluatorOptions,
         handler,
-        length,
+        length: 0,
         password,
         rangeChunkSize,
       };
@@ -287,13 +292,8 @@ class WorkerMessageHandler {
         }
 
         if (!newPdfManager) {
-          const pdfFile = arrayBuffersToBytes(cachedChunks);
+          pdfManagerArgs.source = arrayBuffersToBytes(cachedChunks);
           cachedChunks = null;
-
-          if (length && pdfFile.length !== length) {
-            warn("reported HTTP length is different from actual");
-          }
-          pdfManagerArgs.source = pdfFile;
 
           newPdfManager = new LocalPdfManager(pdfManagerArgs);
           resolve(newPdfManager);
@@ -355,7 +355,7 @@ class WorkerMessageHandler {
             ensureNotTerminated();
 
             loadDocument(true).then(onSuccess, onFailure);
-          });
+          }, onFailure);
         });
       }
 
@@ -373,9 +373,14 @@ class WorkerMessageHandler {
           }
           pdfManager = newPdfManager;
 
-          pdfManager.requestLoadedStream(/* noFetch = */ true).then(stream => {
-            handler.send("DataLoaded", { length: stream.bytes.byteLength });
-          });
+          pdfManager.requestLoadedStream(/* noFetch = */ true).then(
+            stream => {
+              handler.send("DataLoaded", { length: stream.bytes.byteLength });
+            },
+            () => {
+              // Avoid errors if document loading was terminated.
+            }
+          );
         })
         .then(pdfManagerReady, onFailure);
     }
@@ -435,6 +440,48 @@ class WorkerMessageHandler {
     handler.on("GetAttachments", function (data) {
       return pdfManager.ensureCatalog("attachments");
     });
+
+    handler.on(
+      "GetAttachmentContent",
+      /**
+       * @param {string} id
+       *   Unique attachment identifier (required).
+       */
+      async function (id) {
+        // Loop to prompt again after an incorrect password.
+        while (true) {
+          try {
+            return await pdfManager.ensureCatalog("attachmentContent", [id]);
+          } catch (error) {
+            if (!(error instanceof PasswordException)) {
+              throw error;
+            }
+
+            const task = new WorkerTask(
+              `PasswordException: response ${error.code}`
+            );
+            startWorkerTask(task);
+
+            try {
+              const { password } = await handler.sendWithPromise(
+                "PasswordRequest",
+                error
+              );
+              try {
+                pdfManager.updatePassword(password);
+              } catch (exception) {
+                if (exception instanceof PasswordException) {
+                  continue;
+                }
+                throw exception;
+              }
+            } finally {
+              finishWorkerTask(task);
+            }
+          }
+        }
+      }
+    );
 
     handler.on("GetDocJSActions", function (data) {
       return pdfManager.ensureCatalog("jsActions");
@@ -557,96 +604,114 @@ class WorkerMessageHandler {
       return pdfManager.ensureDoc("calculationOrderIds");
     });
 
-    handler.on("ExtractPages", async function ({ pageInfos }) {
-      if (!pageInfos) {
-        warn("extractPages: nothing to extract.");
-        return null;
-      }
-      if (!Array.isArray(pageInfos)) {
-        pageInfos = [pageInfos];
-      }
-      let newDocumentId = 0;
-      for (const pageInfo of pageInfos) {
-        if (pageInfo.document === null) {
-          pageInfo.document = pdfManager.pdfDocument;
-        } else if (ArrayBuffer.isView(pageInfo.document)) {
-          const manager = new LocalPdfManager({
-            source: pageInfo.document,
-            docId: `${docId}_extractPages_${newDocumentId++}`,
-            handler,
-            password: pageInfo.password ?? null,
-            evaluatorOptions: Object.assign({}, pdfManager.evaluatorOptions),
-          });
-          let recoveryMode = false;
-          let isValid = true;
-          while (true) {
-            try {
-              await manager.requestLoadedStream();
-              await manager.ensureDoc("checkHeader");
-              await manager.ensureDoc("parseStartXRef");
-              await manager.ensureDoc("parse", [recoveryMode]);
-              break;
-            } catch (e) {
-              if (e instanceof XRefParseException) {
-                if (recoveryMode === false) {
-                  recoveryMode = true;
-                  continue;
+    handler.on(
+      "ExtractPages",
+      async function ({ pageInfos, annotationStorage }) {
+        if (!pageInfos) {
+          warn("extractPages: nothing to extract.");
+          return null;
+        }
+        if (!Array.isArray(pageInfos)) {
+          pageInfos = [pageInfos];
+        }
+        let newDocumentId = 0;
+        for (const pageInfo of pageInfos) {
+          if (pageInfo.image) {
+            continue;
+          }
+          if (pageInfo.document === null) {
+            pageInfo.document = pdfManager.pdfDocument;
+          } else if (ArrayBuffer.isView(pageInfo.document)) {
+            const manager = new LocalPdfManager({
+              source: pageInfo.document,
+              docId: `${docId}_extractPages_${newDocumentId++}`,
+              handler,
+              password: pageInfo.password ?? null,
+              evaluatorOptions: Object.assign({}, pdfManager.evaluatorOptions),
+            });
+            let recoveryMode = false;
+            let isValid = true;
+            while (true) {
+              try {
+                await manager.requestLoadedStream();
+                await manager.ensureDoc("checkHeader");
+                await manager.ensureDoc("parseStartXRef");
+                await manager.ensureDoc("parse", [recoveryMode]);
+                break;
+              } catch (e) {
+                if (e instanceof XRefParseException) {
+                  if (recoveryMode === false) {
+                    recoveryMode = true;
+                    continue;
+                  } else {
+                    isValid = false;
+                    warn("extractPages: XRefParseException.");
+                  }
+                } else if (e instanceof PasswordException) {
+                  const task = new WorkerTask(
+                    `PasswordException: response ${e.code}`
+                  );
+
+                  startWorkerTask(task);
+
+                  try {
+                    const { password } = await handler.sendWithPromise(
+                      "PasswordRequest",
+                      e
+                    );
+                    manager.updatePassword(password);
+                  } catch {
+                    isValid = false;
+                    warn("extractPages: invalid password.");
+                  } finally {
+                    finishWorkerTask(task);
+                  }
                 } else {
                   isValid = false;
-                  warn("extractPages: XRefParseException.");
+                  warn("extractPages: invalid document.");
                 }
-              } else if (e instanceof PasswordException) {
-                const task = new WorkerTask(
-                  `PasswordException: response ${e.code}`
-                );
-
-                startWorkerTask(task);
-
-                try {
-                  const { password } = await handler.sendWithPromise(
-                    "PasswordRequest",
-                    e
-                  );
-                  manager.updatePassword(password);
-                } catch {
-                  isValid = false;
-                  warn("extractPages: invalid password.");
-                } finally {
-                  finishWorkerTask(task);
+                if (!isValid) {
+                  break;
                 }
-              } else {
-                isValid = false;
-                warn("extractPages: invalid document.");
-              }
-              if (!isValid) {
-                break;
               }
             }
-          }
-          if (!isValid) {
-            pageInfo.document = null;
-          }
-          const isPureXfa = await manager.ensureDoc("isPureXfa");
-          if (isPureXfa) {
-            pageInfo.document = null;
-            warn("extractPages does not support pure XFA documents.");
+            if (!isValid) {
+              pageInfo.document = null;
+            }
+            const isPureXfa = await manager.ensureDoc("isPureXfa");
+            if (isPureXfa) {
+              pageInfo.document = null;
+              warn("extractPages does not support pure XFA documents.");
+            } else {
+              pageInfo.document = manager.pdfDocument;
+            }
           } else {
-            pageInfo.document = manager.pdfDocument;
+            warn("extractPages: invalid document.");
           }
-        } else {
-          warn("extractPages: invalid document.");
+        }
+        let task;
+        try {
+          const pdfEditor = new PDFEditor();
+          task = new WorkerTask(`ExtractPages: ${pageInfos.length} page(s)`);
+          startWorkerTask(task);
+          const buffer = await pdfEditor.extractPages(
+            pageInfos,
+            annotationStorage,
+            pdfManager.pdfDocument,
+            handler,
+            task
+          );
+          return buffer;
+        } catch (reason) {
+          warn(`extractPages: "${reason}".`);
+          return null;
+        } finally {
+          if (task) {
+            finishWorkerTask(task);
+          }
         }
       }
-      try {
-        const pdfEditor = new PDFEditor();
-        const buffer = await pdfEditor.extractPages(pageInfos);
-        return buffer;
-      } catch (reason) {
-        // eslint-disable-next-line no-console
-        console.error(reason);
-        return null;
-      }
-    });
+    );
 
     handler.on(
       "SaveDocument",
@@ -1020,6 +1085,9 @@ class WorkerMessageHandler {
         return pdfManager
           .getPage(data.pageIndex)
           .then(page => page.annotations.map(a => a.toString()));
+      });
+      handler.on("GetWorkerCoverage", function () {
+        return globalThis.__coverage__ ?? {};
       });
     }
 

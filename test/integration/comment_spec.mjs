@@ -32,6 +32,7 @@ import {
   selectEditor,
   switchToEditor,
   waitAndClick,
+  waitForBrowserTrip,
   waitForSerialized,
   waitForTimeout,
 } from "./test_utils.mjs";
@@ -573,6 +574,7 @@ describe("Comment", () => {
               await kbModifierDown(page);
               await page.keyboard.press(arrowKey);
               await kbModifierUp(page);
+              await waitForBrowserTrip(page);
             }
 
             const rectAfter = await getRect(page, sidebarSelector);
@@ -590,6 +592,7 @@ describe("Comment", () => {
             const arrowKey = extraWidth > 0 ? "ArrowLeft" : "ArrowRight";
             for (let i = 0; i < Math.abs(extraWidth); i++) {
               await page.keyboard.press(arrowKey);
+              await waitForBrowserTrip(page);
             }
 
             const rectAfter = await getRect(page, sidebarSelector);

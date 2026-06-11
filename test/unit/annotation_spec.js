@@ -29,14 +29,13 @@ import {
   DrawOPS,
   OPS,
   RenderingIntentFlag,
-  stringToBytes,
   stringToUTF8String,
 } from "../../src/shared/util.js";
 import {
   CMAP_URL,
   createIdFactory,
-  DefaultCMapReaderFactory,
-  DefaultStandardFontDataFactory,
+  DefaultBinaryDataFactory,
+  fetchBuiltInCMapHelper,
   STANDARD_FONT_DATA_URL,
   XRefMock,
 } from "./test_utils.js";
@@ -53,11 +52,12 @@ describe("annotation", function () {
     constructor(params) {
       this.pdfDocument = {
         catalog: {
+          attachmentDictById: new Map(),
+          attachmentIdByRef: new RefSetCache(),
           baseUrl: params.docBaseUrl || null,
         },
       };
       this.evaluatorOptions = {
-        isEvalSupported: true,
         isOffscreenCanvasSupported: false,
       };
     }
@@ -82,9 +82,13 @@ describe("annotation", function () {
     }
   }
 
-  const fontDataReader = new DefaultStandardFontDataFactory({
-    baseUrl: STANDARD_FONT_DATA_URL,
+  const binaryDataFactory = new DefaultBinaryDataFactory({
+    cMapUrl: CMAP_URL,
+    standardFontDataUrl: STANDARD_FONT_DATA_URL,
   });
+
+  const fetchBuiltInCMap = name =>
+    fetchBuiltInCMapHelper(binaryDataFactory, /* cMapPacked = */ true, name);
 
   class HandlerMock {
     constructor() {
@@ -95,11 +99,11 @@ describe("annotation", function () {
       this.inputs.push({ name, data });
     }
 
-    sendWithPromise(name, data) {
-      if (name !== "FetchStandardFontData") {
-        return Promise.reject(new Error(`Unsupported mock ${name}.`));
+    async sendWithPromise(name, data) {
+      if (name === "FetchBinaryData") {
+        return binaryDataFactory.fetch(data);
       }
-      return fontDataReader.fetch(data);
+      throw new Error(`Unsupported mock ${name}.`);
     }
   }
 
@@ -113,19 +117,10 @@ describe("annotation", function () {
     annotationGlobalsMock =
       await AnnotationFactory.createGlobals(pdfManagerMock);
 
-    const CMapReaderFactory = new DefaultCMapReaderFactory({
-      baseUrl: CMAP_URL,
-    });
-
     const builtInCMapCache = new Map();
-    builtInCMapCache.set(
-      "UniJIS-UTF16-H",
-      await CMapReaderFactory.fetch({ name: "UniJIS-UTF16-H" })
-    );
-    builtInCMapCache.set(
-      "Adobe-Japan1-UCS2",
-      await CMapReaderFactory.fetch({ name: "Adobe-Japan1-UCS2" })
-    );
+    for (const name of ["UniJIS-UTF16-H", "Adobe-Japan1-UCS2"]) {
+      builtInCMapCache.set(name, await fetchBuiltInCMap(name));
+    }
 
     idFactoryMock = createIdFactory(/* pageIndex = */ 0);
     partialEvaluator = new PartialEvaluator({
@@ -1743,8 +1738,10 @@ describe("annotation", function () {
       const appearanceStatesDict = new Dict();
       const normalAppearanceDict = new Dict();
 
-      const normalAppearanceStream = new StringStream("0.1 0.2 0.3 rg");
-      normalAppearanceStream.dict = normalAppearanceDict;
+      const normalAppearanceStream = new StringStream(
+        "0.1 0.2 0.3 rg",
+        normalAppearanceDict
+      );
 
       appearanceStatesDict.set("N", normalAppearanceStream);
       textWidgetDict.set("AP", appearanceStatesDict);
@@ -2054,11 +2051,11 @@ describe("annotation", function () {
         annotationStorage
       );
       expect(appearance).toEqual(
-        "/Tx BMC q BT /Helv 5 Tf 1 0 0 1 2 3.07 Tm" +
-          " (a) Tj 8 0 Td (a) Tj 8 0 Td (\\() Tj" +
-          " 8 0 Td (a) Tj 8 0 Td (a) Tj" +
-          " 8 0 Td (\\)) Tj 8 0 Td (a) Tj" +
-          " 8 0 Td (\\\\) Tj ET Q EMC"
+        "/Tx BMC q BT /Helv 5 Tf 1 0 0 1 0 3.07 Tm" +
+          " 2.61 0 Td (a) Tj 8 0 Td (a) Tj 8.56 0 Td (\\() Tj" +
+          " 7.44 0 Td (a) Tj 8 0 Td (a) Tj" +
+          " 8.56 0 Td (\\)) Tj 7.44 0 Td (a) Tj" +
+          " 8.7 0 Td (\\\\) Tj ET Q EMC"
       );
     });
 
@@ -2095,8 +2092,8 @@ describe("annotation", function () {
         annotationStorage
       );
       expect(appearance).toEqual(
-        "/Tx BMC q BT /Goth 5 Tf 1 0 0 1 2 3.07 Tm" +
-          " (\x30\x53) Tj 8 0 Td (\x30\x93) Tj 8 0 Td (\x30\x6b) Tj" +
+        "/Tx BMC q BT /Goth 5 Tf 1 0 0 1 0 3.07 Tm" +
+          " 1.5 0 Td (\x30\x53) Tj 8 0 Td (\x30\x93) Tj 8 0 Td (\x30\x6b) Tj" +
           " 8 0 Td (\x30\x61) Tj 8 0 Td (\x30\x6f) Tj" +
           " 8 0 Td (\x4e\x16) Tj 8 0 Td (\x75\x4c) Tj" +
           " 8 0 Td (\x30\x6e) Tj ET Q EMC"
@@ -2555,11 +2552,12 @@ describe("annotation", function () {
       const checkedAppearanceDict = new Dict();
       const uncheckedAppearanceDict = new Dict();
 
-      const checkedStream = new StringStream("/ 12 Tf (4) Tj");
-      checkedStream.dict = checkedAppearanceDict;
+      const checkedStream = new StringStream(
+        "/ 12 Tf (4) Tj",
+        checkedAppearanceDict
+      );
 
-      const uncheckedStream = new StringStream("");
-      uncheckedStream.dict = uncheckedAppearanceDict;
+      const uncheckedStream = new StringStream("", uncheckedAppearanceDict);
 
       checkedAppearanceDict.set("BBox", [0, 0, 8, 8]);
       checkedAppearanceDict.set("FormType", 1);
@@ -2615,11 +2613,15 @@ describe("annotation", function () {
       const checkedAppearanceDict = new Dict();
       const uncheckedAppearanceDict = new Dict();
 
-      const checkedStream = new StringStream("0.1 0.2 0.3 rg");
-      checkedStream.dict = checkedAppearanceDict;
+      const checkedStream = new StringStream(
+        "0.1 0.2 0.3 rg",
+        checkedAppearanceDict
+      );
 
-      const uncheckedStream = new StringStream("0.3 0.2 0.1 rg");
-      uncheckedStream.dict = uncheckedAppearanceDict;
+      const uncheckedStream = new StringStream(
+        "0.3 0.2 0.1 rg",
+        uncheckedAppearanceDict
+      );
 
       checkedAppearanceDict.set("BBox", [0, 0, 8, 8]);
       checkedAppearanceDict.set("FormType", 1);
@@ -2696,11 +2698,15 @@ describe("annotation", function () {
       const checkedAppearanceDict = new Dict();
       const uncheckedAppearanceDict = new Dict();
 
-      const checkedStream = new StringStream("0.1 0.2 0.3 rg");
-      checkedStream.dict = checkedAppearanceDict;
+      const checkedStream = new StringStream(
+        "0.1 0.2 0.3 rg",
+        checkedAppearanceDict
+      );
 
-      const uncheckedStream = new StringStream("0.3 0.2 0.1 rg");
-      uncheckedStream.dict = uncheckedAppearanceDict;
+      const uncheckedStream = new StringStream(
+        "0.3 0.2 0.1 rg",
+        uncheckedAppearanceDict
+      );
 
       checkedAppearanceDict.set("BBox", [0, 0, 8, 8]);
       checkedAppearanceDict.set("FormType", 1);
@@ -2758,11 +2764,15 @@ describe("annotation", function () {
       const checkedAppearanceDict = new Dict();
       const uncheckedAppearanceDict = new Dict();
 
-      const checkedStream = new StringStream("0.1 0.2 0.3 rg");
-      checkedStream.dict = checkedAppearanceDict;
+      const checkedStream = new StringStream(
+        "0.1 0.2 0.3 rg",
+        checkedAppearanceDict
+      );
 
-      const uncheckedStream = new StringStream("0.3 0.2 0.1 rg");
-      uncheckedStream.dict = uncheckedAppearanceDict;
+      const uncheckedStream = new StringStream(
+        "0.3 0.2 0.1 rg",
+        uncheckedAppearanceDict
+      );
 
       checkedAppearanceDict.set("BBox", [0, 0, 8, 8]);
       checkedAppearanceDict.set("FormType", 1);
@@ -2936,10 +2946,11 @@ describe("annotation", function () {
 
     it("should handle radio buttons with a field value that's not an ASCII string", async function () {
       const parentDict = new Dict();
-      parentDict.set("V", Name.get("\x91I=\x91\xf0\x93\xe0\x97e3"));
+      const name = "\x91I=\x91\xf0\x93\xe0\x97e3";
+      parentDict.set("V", Name.get(name));
 
       const normalAppearanceStateDict = new Dict();
-      normalAppearanceStateDict.set("\x91I=\x91\xf0\x93\xe0\x97e3", null);
+      normalAppearanceStateDict.set(name, null);
 
       const appearanceStatesDict = new Dict();
       appearanceStatesDict.set("N", normalAppearanceStateDict);
@@ -2962,8 +2973,8 @@ describe("annotation", function () {
       expect(data.annotationType).toEqual(AnnotationType.WIDGET);
       expect(data.checkBox).toEqual(false);
       expect(data.radioButton).toEqual(true);
-      expect(data.fieldValue).toEqual("‚I=‚ðﬁàŠe3");
-      expect(data.buttonValue).toEqual("‚I=‚ðﬁàŠe3");
+      expect(data.fieldValue).toEqual(name);
+      expect(data.buttonValue).toEqual(name);
     });
 
     it("should handle radio buttons without a field value", async function () {
@@ -3000,11 +3011,15 @@ describe("annotation", function () {
       const checkedAppearanceDict = new Dict();
       const uncheckedAppearanceDict = new Dict();
 
-      const checkedStream = new StringStream("0.1 0.2 0.3 rg");
-      checkedStream.dict = checkedAppearanceDict;
+      const checkedStream = new StringStream(
+        "0.1 0.2 0.3 rg",
+        checkedAppearanceDict
+      );
 
-      const uncheckedStream = new StringStream("0.3 0.2 0.1 rg");
-      uncheckedStream.dict = uncheckedAppearanceDict;
+      const uncheckedStream = new StringStream(
+        "0.3 0.2 0.1 rg",
+        uncheckedAppearanceDict
+      );
 
       checkedAppearanceDict.set("BBox", [0, 0, 8, 8]);
       checkedAppearanceDict.set("FormType", 1);
@@ -3082,11 +3097,15 @@ describe("annotation", function () {
       const checkedAppearanceDict = new Dict();
       const uncheckedAppearanceDict = new Dict();
 
-      const checkedStream = new StringStream("0.1 0.2 0.3 rg");
-      checkedStream.dict = checkedAppearanceDict;
+      const checkedStream = new StringStream(
+        "0.1 0.2 0.3 rg",
+        checkedAppearanceDict
+      );
 
-      const uncheckedStream = new StringStream("0.3 0.2 0.1 rg");
-      uncheckedStream.dict = uncheckedAppearanceDict;
+      const uncheckedStream = new StringStream(
+        "0.3 0.2 0.1 rg",
+        uncheckedAppearanceDict
+      );
 
       checkedAppearanceDict.set("BBox", [0, 0, 8, 8]);
       checkedAppearanceDict.set("FormType", 1);
@@ -4045,12 +4064,88 @@ describe("annotation", function () {
         idFactoryMock
       );
       expect(data.annotationType).toEqual(AnnotationType.FILEATTACHMENT);
+      expect(data.fileId.startsWith("annotation:")).toEqual(true);
       expect(data.file).toEqual({
         rawFilename: "Test.txt",
         filename: "Test.txt",
-        content: stringToBytes("Test attachment"),
         description: "abc",
       });
+
+      // Content lookup and reading requires a bigger mock than used here.
+      expect(
+        pdfManagerMock.pdfDocument.catalog.attachmentDictById.has(data.fileId)
+      ).toEqual(true);
+    });
+
+    it("should reuse the attachment NameTree id for referenced files", async function () {
+      const fileStream = new StringStream(
+        "<<\n" +
+          "/Type /EmbeddedFile\n" +
+          "/Subtype /text#2Fplain\n" +
+          ">>\n" +
+          "stream\n" +
+          "Test attachment" +
+          "endstream\n"
+      );
+      const parser = new Parser({
+        lexer: new Lexer(fileStream),
+        xref: null,
+        allowStreams: true,
+      });
+
+      const fileStreamRef = Ref.get(28, 0);
+      const fileStreamDict = parser.getObj();
+
+      const embeddedFileDict = new Dict();
+      embeddedFileDict.set("F", fileStreamRef);
+
+      const fileSpecRef = Ref.get(29, 0);
+      const fileSpecDict = new Dict();
+      fileSpecDict.set("Type", Name.get("Filespec"));
+      fileSpecDict.set("Desc", "abc");
+      fileSpecDict.set("EF", embeddedFileDict);
+      fileSpecDict.set("UF", "Test.txt");
+
+      const fileAttachmentRef = Ref.get(30, 0);
+      const fileAttachmentDict = new Dict();
+      fileAttachmentDict.set("Type", Name.get("Annot"));
+      fileAttachmentDict.set("Subtype", Name.get("FileAttachment"));
+      fileAttachmentDict.set("FS", fileSpecRef);
+      fileAttachmentDict.set("T", "Topic");
+      fileAttachmentDict.set("Contents", "Test.txt");
+
+      const xref = new XRefMock([
+        { ref: fileStreamRef, data: fileStreamDict },
+        { ref: fileSpecRef, data: fileSpecDict },
+        { ref: fileAttachmentRef, data: fileAttachmentDict },
+      ]);
+      embeddedFileDict.assignXref(xref);
+      fileSpecDict.assignXref(xref);
+      fileAttachmentDict.assignXref(xref);
+
+      pdfManagerMock.pdfDocument.catalog.attachmentIdByRef.put(
+        fileSpecRef,
+        "Test.txt"
+      );
+
+      const { data } = await AnnotationFactory.create(
+        xref,
+        fileAttachmentRef,
+        annotationGlobalsMock,
+        idFactoryMock
+      );
+      expect(data.annotationType).toEqual(AnnotationType.FILEATTACHMENT);
+      expect(data.fileId).toEqual("Test.txt");
+      expect(data.file).toEqual({
+        rawFilename: "Test.txt",
+        filename: "Test.txt",
+        description: "abc",
+      });
+
+      // File should not be added as it’s already referenced in the `NameTree`.
+      expect(
+        pdfManagerMock.pdfDocument.catalog.attachmentDictById.has(data.fileId)
+      ).toEqual(false);
     });
   });
 
@@ -4203,6 +4298,7 @@ describe("annotation", function () {
       const changes = new RefSetCache();
       await AnnotationFactory.saveNewAnnotations(
         partialEvaluator,
+        xref,
         task,
         [
           {
@@ -4320,6 +4416,7 @@ describe("annotation", function () {
       const task = new WorkerTask("test FreeText update");
       await AnnotationFactory.saveNewAnnotations(
         partialEvaluator,
+        xref,
         task,
         [
           {
@@ -4435,6 +4532,7 @@ describe("annotation", function () {
       const task = new WorkerTask("test Ink creation");
       await AnnotationFactory.saveNewAnnotations(
         partialEvaluator,
+        xref,
         task,
         [
           {
@@ -4532,6 +4630,7 @@ describe("annotation", function () {
       const task = new WorkerTask("test Ink creation");
       await AnnotationFactory.saveNewAnnotations(
         partialEvaluator,
+        xref,
         task,
         [
           {
@@ -4764,6 +4863,7 @@ describe("annotation", function () {
       const task = new WorkerTask("test Highlight creation");
       await AnnotationFactory.saveNewAnnotations(
         partialEvaluator,
+        xref,
         task,
         [
           {
@@ -4857,6 +4957,7 @@ describe("annotation", function () {
       const task = new WorkerTask("test free Highlight creation");
       await AnnotationFactory.saveNewAnnotations(
         partialEvaluator,
+        xref,
         task,
         [
           {
@@ -4988,6 +5089,7 @@ describe("annotation", function () {
       const task = new WorkerTask("test Highlight update");
       await AnnotationFactory.saveNewAnnotations(
         partialEvaluator,
+        xref,
         task,
         [
           {
@@ -5051,6 +5153,7 @@ describe("annotation", function () {
       const task = new WorkerTask("test Highlight update");
       await AnnotationFactory.saveNewAnnotations(
         partialEvaluator,
+        xref,
         task,
         [
           {
@@ -5215,6 +5318,7 @@ describe("annotation", function () {
       const task = new WorkerTask("test Stamp creation");
       await AnnotationFactory.saveNewAnnotations(
         partialEvaluator,
+        xref,
         task,
         [
           {

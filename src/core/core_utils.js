@@ -17,19 +17,17 @@ import {
   AnnotationEditorPrefix,
   assert,
   BaseException,
-  hexNumbers,
   makeArr,
   objectSize,
-  stringToPDFString,
   Util,
   warn,
 } from "../shared/util.js";
-import { Dict, isName, Ref, RefSet } from "./primitives.js";
+import { Dict, isName, isRefsEqual, Name, Ref, RefSet } from "./primitives.js";
 import { BaseStream } from "./base_stream.js";
+import { stringToPDFString } from "./string_utils.js";
 
 const PDF_VERSION_REGEXP = /^[1-9]\.\d$/;
 const MAX_INT_32 = 2 ** 31 - 1;
-const MIN_INT_32 = -(2 ** 31);
 
 const IDENTITY_MATRIX = [1, 0, 0, 1, 0, 0];
 
@@ -212,6 +210,13 @@ function deepCompare(a, b) {
   if (a === b) {
     return true;
   }
+  if (a instanceof Ref && b instanceof Ref) {
+    return isRefsEqual(a, b);
+  }
+  if (a instanceof Name && b instanceof Name) {
+    return a.name === b.name;
+  }
+
   if (a instanceof Dict && b instanceof Dict) {
     if (a.size !== b.size) {
       return false;
@@ -266,35 +271,6 @@ function toRomanNumerals(number, lowerCase = false) {
     ROMAN_NUMBER_MAP[10 + (((number % 100) / 10) | 0)] +
     ROMAN_NUMBER_MAP[20 + (number % 10)];
   return lowerCase ? roman.toLowerCase() : roman;
-}
-
-// Calculate the base 2 logarithm of the number `x`. This differs from the
-// native function in the sense that it returns the ceiling value and that it
-// returns 0 instead of `Infinity`/`NaN` for `x` values smaller than/equal to 0.
-function log2(x) {
-  return x > 0 ? Math.ceil(Math.log2(x)) : 0;
-}
-
-function readInt8(data, offset) {
-  return (data[offset] << 24) >> 24;
-}
-
-function readInt16(data, offset) {
-  return ((data[offset] << 24) | (data[offset + 1] << 16)) >> 16;
-}
-
-function readUint16(data, offset) {
-  return (data[offset] << 8) | data[offset + 1];
-}
-
-function readUint32(data, offset) {
-  return (
-    ((data[offset] << 24) |
-      (data[offset + 1] << 16) |
-      (data[offset + 2] << 8) |
-      data[offset + 3]) >>>
-    0
-  );
 }
 
 // Checks if ch is one of the following characters: SPACE, TAB, CR or LF.
@@ -588,7 +564,7 @@ function validateFontName(fontFamily, mustWarn = false) {
   } else {
     // See https://developer.mozilla.org/en-US/docs/Web/CSS/custom-ident.
     for (const ident of fontFamily.split(/[ \t]+/)) {
-      if (/^(\d|(-(\d|-)))/.test(ident) || !/^[\w-\\]+$/.test(ident)) {
+      if (/^(?:\d|-[\d-])/.test(ident) || !/^[\w\\-]+$/.test(ident)) {
         if (mustWarn) {
           warn(`FontFamily contains invalid <custom-ident>: ${fontFamily}.`);
         }
@@ -708,43 +684,20 @@ function getNewAnnotationsMap(annotationStorage) {
   return newAnnotationsByPage.size > 0 ? newAnnotationsByPage : null;
 }
 
-// If the string is null or undefined then it is returned as is.
-function stringToAsciiOrUTF16BE(str) {
-  if (str === null || str === undefined) {
-    return str;
+function getModificationDate(date = new Date()) {
+  if (!(date instanceof Date)) {
+    date = new Date(date);
   }
-  return isAscii(str) ? str : stringToUTF16String(str, /* bigEndian = */ true);
-}
+  const buffer = [
+    date.getUTCFullYear().toString(),
+    (date.getUTCMonth() + 1).toString().padStart(2, "0"),
+    date.getUTCDate().toString().padStart(2, "0"),
+    date.getUTCHours().toString().padStart(2, "0"),
+    date.getUTCMinutes().toString().padStart(2, "0"),
+    date.getUTCSeconds().toString().padStart(2, "0"),
+  ];
 
-function isAscii(str) {
-  if (typeof str !== "string") {
-    return false;
-  }
-  return !str || /^[\x00-\x7F]*$/.test(str);
-}
-
-function stringToUTF16HexString(str) {
-  const buf = [];
-  for (let i = 0, ii = str.length; i < ii; i++) {
-    const char = str.charCodeAt(i);
-    buf.push(hexNumbers[(char >> 8) & 0xff], hexNumbers[char & 0xff]);
-  }
-  return buf.join("");
-}
-
-function stringToUTF16String(str, bigEndian = false) {
-  const buf = [];
-  if (bigEndian) {
-    buf.push("\xFE\xFF");
-  }
-  for (let i = 0, ii = str.length; i < ii; i++) {
-    const char = str.charCodeAt(i);
-    buf.push(
-      String.fromCharCode((char >> 8) & 0xff),
-      String.fromCharCode(char & 0xff)
-    );
-  }
-  return buf.join("");
+  return buffer.join("");
 }
 
 function getRotationMatrix(rotation, width, height) {
@@ -784,36 +737,27 @@ export {
   fetchBinaryData,
   getInheritableProperty,
   getLookupTableFactory,
+  getModificationDate,
   getNewAnnotationsMap,
   getParentToUpdate,
   getRotationMatrix,
   getSizeInBytes,
   IDENTITY_MATRIX,
-  isAscii,
   isBooleanArray,
   isNumberArray,
   isWhiteSpace,
-  log2,
   lookupMatrix,
   lookupNormalRect,
   lookupRect,
   MAX_INT_32,
-  MIN_INT_32,
   MissingDataException,
   numberToString,
   ParserEOFException,
   parseXFAPath,
   PDF_VERSION_REGEXP,
-  readInt16,
-  readInt8,
-  readUint16,
-  readUint32,
   recoverJsURL,
   RESOURCES_KEYS_OPERATOR_LIST,
   RESOURCES_KEYS_TEXT_CONTENT,
-  stringToAsciiOrUTF16BE,
-  stringToUTF16HexString,
-  stringToUTF16String,
   toRomanNumerals,
   validateCSSFont,
   validateFontName,

@@ -1726,10 +1726,6 @@ describe("Highlight Editor", () => {
     it("must check that an existing highlight is ignored on hovering", async () => {
       await Promise.all(
         pages.map(async ([browserName, page]) => {
-          if (navigator.platform.includes("Win")) {
-            pending("Fails consistently on Windows (issue #20136).");
-          }
-
           await switchToHighlight(page);
 
           const rect = await getSpanRectFromText(
@@ -2275,9 +2271,7 @@ describe("Highlight Editor", () => {
           const pdfData = fs.readFileSync(pdfPath).toString("base64");
           const dataTransfer = await page.evaluateHandle(data => {
             const transfer = new DataTransfer();
-            const view = Uint8Array.from(atob(data), code =>
-              code.charCodeAt(0)
-            );
+            const view = Uint8Array.fromBase64(data);
             const file = new File([view], "basicapi.pdf", {
               type: "application/pdf",
             });

@@ -27,9 +27,9 @@ import {
   makeArr,
   makeMap,
   makeObj,
-  MathClamp,
   normalizeUnicode,
   OPS,
+  PasswordException,
   PasswordResponses,
   PermissionFlag,
   ResponseException,
@@ -46,7 +46,7 @@ import {
   getFilenameFromUrl,
   getPdfFilenameFromUrl,
   getRGB,
-  getXfaPageViewport,
+  getRGBA,
   isDataScheme,
   isPdfFile,
   noContextMenu,
@@ -74,6 +74,7 @@ import { DOMSVGFactory } from "../../src/display/svg_factory.js";
 import { DrawLayer } from "../../src/display/draw_layer.js";
 import { GlobalWorkerOptions } from "../../src/display/worker_options.js";
 import { isValidExplicitDest } from "../../src/display/api_utils.js";
+import { MathClamp } from "../../src/shared/math_clamp.js";
 import { SignatureExtractor } from "../../src/display/editor/drawers/signaturedraw.js";
 import { TextLayer } from "../../src/display/text_layer.js";
 import { TextLayerImages } from "../../src/display/text_layer_images.js";
@@ -103,8 +104,8 @@ const expectedAPI = Object.freeze({
   getFilenameFromUrl,
   getPdfFilenameFromUrl,
   getRGB,
+  getRGBA,
   getUuid,
-  getXfaPageViewport,
   GlobalWorkerOptions,
   ImageKind,
   InvalidPDFException,
@@ -119,6 +120,7 @@ const expectedAPI = Object.freeze({
   normalizeUnicode,
   OPS,
   OutputScale,
+  PasswordException,
   PasswordResponses,
   PDFDataRangeTransport,
   PDFDateString,

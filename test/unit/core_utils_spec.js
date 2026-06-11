@@ -20,19 +20,21 @@ import {
   escapePDFName,
   escapeString,
   getInheritableProperty,
+  getModificationDate,
   getSizeInBytes,
-  isAscii,
   isWhiteSpace,
-  log2,
   numberToString,
   parseXFAPath,
   recoverJsURL,
-  stringToUTF16HexString,
-  stringToUTF16String,
   toRomanNumerals,
   validateCSSFont,
 } from "../../src/core/core_utils.js";
-import { Dict, Ref } from "../../src/core/primitives.js";
+import {
+  clearPrimitiveCaches,
+  Dict,
+  Name,
+  Ref,
+} from "../../src/core/primitives.js";
 import { XRefMock } from "./test_utils.js";
 
 describe("core_utils", function () {
@@ -195,20 +197,6 @@ describe("core_utils", function () {
       expect(toRomanNumerals(500, /* lowercase = */ true)).toEqual("d");
       expect(toRomanNumerals(1000, /* lowercase = */ true)).toEqual("m");
       expect(toRomanNumerals(2019, /* lowercase = */ true)).toEqual("mmxix");
-    });
-  });
-
-  describe("log2", function () {
-    it("handles values smaller than/equal to zero", function () {
-      expect(log2(0)).toEqual(0);
-      expect(log2(-1)).toEqual(0);
-    });
-
-    it("handles values larger than zero", function () {
-      expect(log2(1)).toEqual(0);
-      expect(log2(2)).toEqual(1);
-      expect(log2(3)).toEqual(2);
-      expect(log2(3.14)).toEqual(2);
     });
   });
 
@@ -425,56 +413,6 @@ describe("core_utils", function () {
     });
   });
 
-  describe("isAscii", function () {
-    it("handles ascii/non-ascii strings", function () {
-      expect(isAscii("hello world")).toEqual(true);
-      expect(isAscii("こんにちは世界の")).toEqual(false);
-      expect(isAscii("hello world in Japanese is こんにちは世界の")).toEqual(
-        false
-      );
-      expect(isAscii("")).toEqual(true);
-      expect(isAscii(123)).toEqual(false);
-      expect(isAscii(null)).toEqual(false);
-      expect(isAscii(undefined)).toEqual(false);
-    });
-  });
-
-  describe("stringToUTF16HexString", function () {
-    it("should encode a string in UTF16 hexadecimal format", function () {
-      expect(stringToUTF16HexString("hello world")).toEqual(
-        "00680065006c006c006f00200077006f0072006c0064"
-      );
-
-      expect(stringToUTF16HexString("こんにちは世界の")).toEqual(
-        "30533093306b3061306f4e16754c306e"
-      );
-    });
-  });
-
-  describe("stringToUTF16String", function () {
-    it("should encode a string in UTF16", function () {
-      expect(stringToUTF16String("hello world")).toEqual(
-        "\0h\0e\0l\0l\0o\0 \0w\0o\0r\0l\0d"
-      );
-
-      expect(stringToUTF16String("こんにちは世界の")).toEqual(
-        "\x30\x53\x30\x93\x30\x6b\x30\x61\x30\x6f\x4e\x16\x75\x4c\x30\x6e"
-      );
-    });
-
-    it("should encode a string in UTF16BE with a BOM", function () {
-      expect(
-        stringToUTF16String("hello world", /* bigEndian = */ true)
-      ).toEqual("\xfe\xff\0h\0e\0l\0l\0o\0 \0w\0o\0r\0l\0d");
-
-      expect(
-        stringToUTF16String("こんにちは世界の", /* bigEndian = */ true)
-      ).toEqual(
-        "\xfe\xff\x30\x53\x30\x93\x30\x6b\x30\x61\x30\x6f\x4e\x16\x75\x4c\x30\x6e"
-      );
-    });
-  });
-
   describe("deepCompare", function () {
     it("should return true for the same reference", function () {
       const dict = new Dict();
@@ -510,6 +448,20 @@ describe("core_utils", function () {
       a.set("Foo", ref);
       const b = new Dict();
       b.set("Foo", ref);
+      expect(deepCompare(a, b)).toBeTrue();
+    });
+
+    it("should return true for Dicts with same Ref values, after clearing cached Refs", function () {
+      const refA = Ref.get(10, 0);
+      clearPrimitiveCaches();
+      const refB = Ref.get(10, 0);
+      // Ensure that Ref-objects are not identical, after clearing the cache.
+      expect(refA).not.toBe(refB);
+
+      const a = new Dict();
+      a.set("Foo", refA);
+      const b = new Dict();
+      b.set("Foo", refB);
       expect(deepCompare(a, b)).toBeTrue();
     });
 
@@ -569,6 +521,38 @@ describe("core_utils", function () {
 
     it("should return false for arrays with different values", function () {
       expect(deepCompare([Ref.get(1, 0)], [Ref.get(2, 0)])).toBeFalse();
+    });
+
+    it("should return true for equal Names", function () {
+      const name1 = Name.get("name"),
+        name2 = Name.get("name");
+      expect(name1).toBe(name2); // Names are cached.
+
+      expect(deepCompare(name1, name2)).toBeTrue();
+    });
+
+    it("should return false for different Names", function () {
+      const name1 = Name.get("name"),
+        name2 = Name.get("otherName");
+      expect(deepCompare(name1, name2)).toBeFalse();
+    });
+
+    it("should return true for equal Names, after clearing cached Names", function () {
+      const name1 = Name.get("name");
+      clearPrimitiveCaches();
+      const name2 = Name.get("name");
+      // Ensure that Name-objects are not identical, after clearing the cache.
+      expect(name1).not.toBe(name2);
+
+      expect(deepCompare(name1, name2)).toBeTrue();
+    });
+  });
+
+  describe("getModificationDate", function () {
+    it("should get a correctly formatted date", function () {
+      const date = new Date(Date.UTC(3141, 5, 9, 2, 6, 53));
+      expect(getModificationDate(date)).toEqual("31410609020653");
+      expect(getModificationDate(date.toString())).toEqual("31410609020653");
     });
   });
 

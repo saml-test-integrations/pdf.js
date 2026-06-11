@@ -36,8 +36,8 @@ if (typeof PDFJSDev === "undefined" || !PDFJSDev.test("CHROME")) {
   // Run this code outside DOMContentLoaded to make sure that the URL
   // is rewritten as soon as possible.
   const queryString = document.location.search.slice(1);
-  const m = /(^|&)file=([^&]*)/.exec(queryString);
-  let defaultUrl = m ? decodeURIComponent(m[2]) : "";
+  const m = /(?:^|&)file=([^&]*)/.exec(queryString);
+  let defaultUrl = m ? decodeURIComponent(m[1]) : "";
   if (!defaultUrl && queryString.startsWith("DNR:")) {
     // Redirected via DNR, see registerPdfRedirectRule in pdfHandler.js.
     defaultUrl = queryString.slice(4);
@@ -439,7 +439,10 @@ class ExternalServices extends BaseExternalServices {
   }
 
   createScripting() {
-    return new GenericScripting(AppOptions.get("sandboxBundleSrc"));
+    return new GenericScripting(
+      AppOptions.get("sandboxBundleSrc"),
+      AppOptions.get("wasmUrl")
+    );
   }
 
   createSignatureStorage(eventBus, signal) {

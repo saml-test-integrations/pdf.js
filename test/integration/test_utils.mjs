@@ -13,6 +13,7 @@
  * limitations under the License.
  */
 
+import { mergeCoverageIntoGlobal } from "../coverage_utils.js";
 import os from "os";
 
 const isMac = os.platform() === "darwin";
@@ -149,11 +150,42 @@ function closePages(pages) {
 }
 
 async function closeSinglePage(page) {
-  // Avoid to keep something from a previous test.
-  await page.evaluate(async () => {
+  const coverage = await page.evaluate(async () => {
+    // Collect coverage data from the worker before the document is closed.
+    let workerCoverage = null;
+    const handler =
+      window.PDFViewerApplication.pdfDocument?._transport?.messageHandler;
+    if (handler) {
+      try {
+        workerCoverage = await handler.sendWithPromise(
+          "GetWorkerCoverage",
+          null
+        );
+      } catch {}
+    }
+
+    // Close the viewer gracefully, and clear local storage to avoid state
+    // leaking from one test to another.
     await window.PDFViewerApplication.testingClose();
     window.localStorage.clear();
+
+    // Serialize the coverage data to a JSON string because that is a lot
+    // faster/cheaper to transfer from the browser to Node.js over the WebDriver
+    // BiDi protocol, otherwise Puppeteer's (significantly slower) serialization
+    // logic kicks in (see https://github.com/puppeteer/puppeteer/issues/2427).
+    return {
+      page: window.__coverage__ ? JSON.stringify(window.__coverage__) : null,
+      worker: workerCoverage ? JSON.stringify(workerCoverage) : null,
+    };
   });
+
+  if (coverage.page) {
+    mergeCoverageIntoGlobal(JSON.parse(coverage.page));
+  }
+  if (coverage.worker) {
+    mergeCoverageIntoGlobal(JSON.parse(coverage.worker));
+  }
+
   await page.close({ runBeforeUnload: false });
 }
 
@@ -236,13 +268,8 @@ function getSelector(id) {
 }
 
 async function getRect(page, selector) {
-  // In Chrome something is wrong when serializing a `DomRect`,
-  // so we extract the values and return them ourselves.
   await page.waitForSelector(selector, { visible: true });
-  return page.$eval(selector, el => {
-    const { x, y, width, height } = el.getBoundingClientRect();
-    return { x, y, width, height };
-  });
+  return (await page.$(selector)).boundingBox();
 }
 
 function getQuerySelector(id) {
@@ -532,7 +559,7 @@ function getEditors(page, kind) {
     const elements = document.querySelectorAll(`.${aKind}Editor`);
     const results = [];
     for (const { id } of elements) {
-      results.push(parseInt(id.split("_").at(-1)));
+      results.push(parseInt(id.split("_").at(-1), 10));
     }
     results.sort();
     return results;
@@ -650,13 +677,50 @@ async function scrollIntoView(page, selector) {
     sel => [
       new Promise(resolve => {
         const container = document.getElementById("viewerContainer");
-        if (container.scrollHeight <= container.clientHeight) {
+        const element = document.querySelector(sel);
+        if (!container || !element) {
           resolve();
           return;
         }
-        container.addEventListener("scrollend", resolve, { once: true });
-        const element = document.querySelector(sel);
+        if (
+          container.scrollHeight <= container.clientHeight &&
+          container.scrollWidth <= container.clientWidth
+        ) {
+          resolve();
+          return;
+        }
+
+        const beforeTop = container.scrollTop;
+        const beforeLeft = container.scrollLeft;
+        let settled = false;
+        let timeoutId = null;
+
+        const finish = () => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          if (timeoutId !== null) {
+            clearTimeout(timeoutId);
+          }
+          container.removeEventListener("scrollend", finish);
+          resolve();
+        };
+
+        container.addEventListener("scrollend", finish, { once: true });
         element.scrollIntoView({ behavior: "instant", block: "start" });
+
+        if (
+          container.scrollTop === beforeTop &&
+          container.scrollLeft === beforeLeft
+        ) {
+          finish();
+          return;
+        }
+
+        // Some browsers occasionally miss `scrollend`, so keep a short
+        // fallback to avoid hanging.
+        timeoutId = setTimeout(finish, 250);
       }),
     ],
     selector
@@ -680,6 +744,10 @@ async function firstPageOnTop(page) {
 }
 
 async function setCaretAt(page, pageNumber, text, position) {
+  // Wait for the text layer to finish rendering before trying to find the span.
+  await page.waitForSelector(
+    `.page[data-page-number="${pageNumber}"] .textLayer .endOfContent`
+  );
   await page.evaluate(
     (pageN, string, pos) => {
       for (const el of document.querySelectorAll(
@@ -828,12 +896,37 @@ async function kbDeleteLastWord(page) {
   }
 }
 
-async function kbFocusNext(page) {
-  const handle = await createPromise(page, resolve => {
-    window.addEventListener("focusin", resolve, { once: true });
-  });
-  await page.keyboard.press("Tab");
-  await awaitPromise(handle);
+async function kbFocusNext(page, selector = null) {
+  if (selector) {
+    await page.waitForSelector(selector, { visible: true });
+  }
+  while (true) {
+    const handle = await page.evaluateHandle(
+      sel => [
+        new Promise(resolve => {
+          const cb = e => {
+            if (!sel || document.querySelector(sel)?.contains(e.target)) {
+              window.removeEventListener("focusin", cb);
+              resolve(true);
+            } else {
+              resolve(false);
+            }
+          };
+          window.addEventListener("focusin", cb);
+        }),
+      ],
+      selector
+    );
+
+    await page.keyboard.press("Tab");
+    const result = await awaitPromise(handle);
+    if (result) {
+      break;
+    }
+  }
+  if (selector) {
+    await page.waitForSelector(`${selector}:focus`, { visible: true });
+  }
 }
 
 async function kbFocusPrevious(page) {
@@ -1006,6 +1099,24 @@ async function showViewsManager(page) {
   });
 }
 
+async function waitForBrowserTrip(page) {
+  const handle = await page.evaluateHandle(() => [
+    new Promise(resolve => {
+      window.requestAnimationFrame(resolve);
+    }),
+  ]);
+  await awaitPromise(handle);
+}
+
+function waitForSelectionChange(page, selection) {
+  return page.waitForFunction(
+    // We need to replace EOL on Windows to make the test pass.
+    sel => document.getSelection().toString().replaceAll("\r\n", "\n") === sel,
+    {},
+    selection
+  );
+}
+
 // Unicode bidi isolation characters, Fluent adds these markers to the text.
 const FSI = "\u2068";
 const PDI = "\u2069";
@@ -1078,6 +1189,7 @@ export {
   waitAndClick,
   waitForAnnotationEditorLayer,
   waitForAnnotationModeChanged,
+  waitForBrowserTrip,
   waitForDOMMutation,
   waitForEntryInStorage,
   waitForEvent,
@@ -1087,6 +1199,7 @@ export {
   waitForPointerUp,
   waitForSandboxTrip,
   waitForSelectedEditor,
+  waitForSelectionChange,
   waitForSerialized,
   waitForStorageEntries,
   waitForTextToBe,

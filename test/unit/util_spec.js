@@ -17,11 +17,8 @@ import {
   BaseException,
   bytesToString,
   createValidAbsoluteUrl,
-  getModificationDate,
   getUuid,
-  string32,
   stringToBytes,
-  stringToPDFString,
 } from "../../src/shared/util.js";
 
 describe("util", function () {
@@ -35,8 +32,8 @@ describe("util", function () {
       }
 
       const exception = new DerivedException("Something went wrong");
-      expect(exception instanceof DerivedException).toEqual(true);
-      expect(exception instanceof BaseException).toEqual(true);
+      expect(exception).toBeInstanceOf(DerivedException);
+      expect(exception).toBeInstanceOf(BaseException);
       expect(exception.message).toEqual("Something went wrong");
       expect(exception.name).toEqual("DerivedException");
       expect(exception.foo).toEqual("bar");
@@ -72,14 +69,6 @@ describe("util", function () {
     });
   });
 
-  describe("string32", function () {
-    it("converts unsigned 32-bit integers to strings", function () {
-      expect(string32(0x74727565)).toEqual("true");
-      expect(string32(0x74797031)).toEqual("typ1");
-      expect(string32(0x4f54544f)).toEqual("OTTO");
-    });
-  });
-
   describe("stringToBytes", function () {
     it("handles non-string arguments", function () {
       expect(function () {
@@ -90,80 +79,6 @@ describe("util", function () {
     it("handles string arguments", function () {
       expect(stringToBytes("")).toEqual(new Uint8Array([]));
       expect(stringToBytes("foo")).toEqual(new Uint8Array([102, 111, 111]));
-    });
-  });
-
-  describe("stringToPDFString", function () {
-    it("handles ISO Latin 1 strings", function () {
-      const str = "\x8Dstring\x8E";
-      expect(stringToPDFString(str)).toEqual("\u201Cstring\u201D");
-    });
-
-    it("handles UTF-16 big-endian strings", function () {
-      const str = "\xFE\xFF\x00\x73\x00\x74\x00\x72\x00\x69\x00\x6E\x00\x67";
-      expect(stringToPDFString(str)).toEqual("string");
-    });
-
-    it("handles incomplete UTF-16 big-endian strings", function () {
-      const str = "\xFE\xFF\x00\x73\x00\x74\x00\x72\x00\x69\x00\x6E\x00";
-      expect(stringToPDFString(str)).toEqual("strin");
-    });
-
-    it("handles UTF-16 little-endian strings", function () {
-      const str = "\xFF\xFE\x73\x00\x74\x00\x72\x00\x69\x00\x6E\x00\x67\x00";
-      expect(stringToPDFString(str)).toEqual("string");
-    });
-
-    it("handles incomplete UTF-16 little-endian strings", function () {
-      const str = "\xFF\xFE\x73\x00\x74\x00\x72\x00\x69\x00\x6E\x00\x67";
-      expect(stringToPDFString(str)).toEqual("strin");
-    });
-
-    it("handles UTF-8 strings", function () {
-      const simpleStr = "\xEF\xBB\xBF\x73\x74\x72\x69\x6E\x67";
-      expect(stringToPDFString(simpleStr)).toEqual("string");
-
-      const complexStr =
-        "\xEF\xBB\xBF\xE8\xA1\xA8\xE3\x83\x9D\xE3\x81\x82\x41\xE9\xB7\x97" +
-        "\xC5\x92\xC3\xA9\xEF\xBC\xA2\xE9\x80\x8D\xC3\x9C\xC3\x9F\xC2\xAA" +
-        "\xC4\x85\xC3\xB1\xE4\xB8\x82\xE3\x90\x80\xF0\xA0\x80\x80";
-      expect(stringToPDFString(complexStr)).toEqual(
-        "表ポあA鷗ŒéＢ逍Üßªąñ丂㐀𠀀"
-      );
-    });
-
-    it("handles empty strings", function () {
-      // ISO Latin 1
-      const str1 = "";
-      expect(stringToPDFString(str1)).toEqual("");
-
-      // UTF-16BE
-      const str2 = "\xFE\xFF";
-      expect(stringToPDFString(str2)).toEqual("");
-
-      // UTF-16LE
-      const str3 = "\xFF\xFE";
-      expect(stringToPDFString(str3)).toEqual("");
-
-      // UTF-8
-      const str4 = "\xEF\xBB\xBF";
-      expect(stringToPDFString(str4)).toEqual("");
-    });
-
-    it("handles strings with language code", function () {
-      // ISO Latin 1
-      const str1 = "hello \x1benUS\x1bworld";
-      expect(stringToPDFString(str1)).toEqual("hello world");
-
-      // UTF-16BE
-      const str2 =
-        "\xFE\xFF\x00h\x00e\x00l\x00l\x00o\x00 \x00\x1b\x00e\x00n\x00U\x00S\x00\x1b\x00w\x00o\x00r\x00l\x00d";
-      expect(stringToPDFString(str2)).toEqual("hello world");
-
-      // UTF-16LE
-      const str3 =
-        "\xFF\xFEh\x00e\x00l\x00l\x00o\x00 \x00\x1b\x00e\x00n\x00U\x00S\x00\x1b\x00w\x00o\x00r\x00l\x00d\x00";
-      expect(stringToPDFString(str3)).toEqual("hello world");
     });
   });
 
@@ -216,14 +131,6 @@ describe("util", function () {
         new URL("tel:+0123456789")
       );
       expect(createValidAbsoluteUrl("/foo", "tel:0123456789")).toEqual(null);
-    });
-  });
-
-  describe("getModificationDate", function () {
-    it("should get a correctly formatted date", function () {
-      const date = new Date(Date.UTC(3141, 5, 9, 2, 6, 53));
-      expect(getModificationDate(date)).toEqual("31410609020653");
-      expect(getModificationDate(date.toString())).toEqual("31410609020653");
     });
   });
 

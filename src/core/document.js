@@ -26,7 +26,6 @@ import {
   RenderingIntentFlag,
   shadow,
   stringToBytes,
-  stringToPDFString,
   stringToUTF8String,
   unreachable,
   Util,
@@ -60,6 +59,7 @@ import {
   RefSet,
   RefSetCache,
 } from "./primitives.js";
+import { FunctionType, PDFFunctionFactory } from "./function.js";
 import { getXfaFontDict, getXfaFontName } from "./xfa_fonts.js";
 import { NullStream, Stream } from "./stream.js";
 import { BaseStream } from "./base_stream.js";
@@ -73,9 +73,9 @@ import { LocalColorSpaceCache } from "./image_utils.js";
 import { ObjectLoader } from "./object_loader.js";
 import { OperatorList } from "./operator_list.js";
 import { PartialEvaluator } from "./evaluator.js";
-import { PDFFunctionFactory } from "./function.js";
 import { PDFImage } from "./image.js";
 import { StreamsSequenceStream } from "./decode_stream.js";
+import { stringToPDFString } from "./string_utils.js";
 import { StructTreePage } from "./struct_tree.js";
 import { XFAFactory } from "./xfa/factory.js";
 import { XRef } from "./xref.js";
@@ -83,8 +83,6 @@ import { XRef } from "./xref.js";
 const LETTER_SIZE_MEDIABOX = [0, 0, 612, 792];
 
 class Page {
-  #areAnnotationsCached = false;
-
   #resourcesPromise = null;
 
   constructor({
@@ -149,6 +147,10 @@ class Page {
       systemFontCache: this.systemFontCache,
       options: this.evaluatorOptions,
     });
+  }
+
+  createAnnotationEvaluator(handler) {
+    return this.#createPartialEvaluator(handler);
   }
 
   #getInheritableProperty(key, getArray = false) {
@@ -386,6 +388,7 @@ class Page {
     );
     const newData = await AnnotationFactory.saveNewAnnotations(
       partialEvaluator,
+      this.xref,
       task,
       annotations,
       imagePromises,
@@ -869,8 +872,6 @@ class Page {
         return sortedAnnotations;
       });
 
-    this.#areAnnotationsCached = true;
-
     return shadow(this, "_parsedAnnotations", promise);
   }
 
@@ -892,7 +893,7 @@ class Page {
   ) {
     const { pageIndex } = this;
 
-    if (this.#areAnnotationsCached) {
+    if (Object.hasOwn(this, "_parsedAnnotations")) {
       const cachedAnnotations = await this._parsedAnnotations;
       for (const { data } of cachedAnnotations) {
         if (!types || types.has(data.annotationType)) {
@@ -904,6 +905,8 @@ class Page {
     }
 
     const annots = await this.pdfManager.ensure(this, "annotations");
+    let partialEvaluator;
+
     for (const annotationRef of annots) {
       promises.push(
         AnnotationFactory.create(
@@ -922,7 +925,8 @@ class Page {
             }
             annotation.data.pageIndex = pageIndex;
             if (annotation.hasTextContent && annotation.viewable) {
-              const partialEvaluator = this.#createPartialEvaluator(handler);
+              partialEvaluator ??= this.#createPartialEvaluator(handler);
+
               await annotation.extractTextContent(partialEvaluator, task, [
                 -Infinity,
                 -Infinity,
@@ -1388,7 +1392,7 @@ class PDFDocument {
       }
       let fontFamily = descriptor.get("FontFamily");
       // For example, "Wingdings 3" is not a valid font name in the css specs.
-      fontFamily = fontFamily.replaceAll(/[ ]+(\d)/g, "$1");
+      fontFamily = fontFamily.replaceAll(/ +(\d)/g, "$1");
       const fontWeight = descriptor.get("FontWeight");
 
       // Angle is expressed in degrees counterclockwise in PDF
@@ -2077,20 +2081,19 @@ class PDFDocument {
       const obj = Object.create(null);
       obj.dict = await this.toJSObject(dict, false);
 
-      if (
-        isName(dict.get("Type"), "XObject") &&
-        isName(dict.get("Subtype"), "Image")
-      ) {
+      if (isName(dict.get("Subtype"), "Image")) {
+        const isImageMask = dict.get("ImageMask") === true;
+        if (isImageMask) {
+          dict.set("ImageMask", false);
+          dict.set("IM", false);
+          value.numComps = value.bitsPerComponent = 1;
+        }
         try {
-          const pdfFunctionFactory = new PDFFunctionFactory({
-            xref: this.xref,
-            isEvalSupported: this.pdfManager.evaluatorOptions.isEvalSupported,
-          });
           const imageObj = await PDFImage.buildImage({
             xref: this.xref,
             res: Dict.empty,
             image: value,
-            pdfFunctionFactory,
+            pdfFunctionFactory: new PDFFunctionFactory({ xref: this.xref }),
             globalColorSpaceCache: this.catalog.globalColorSpaceCache,
             localColorSpaceCache: new LocalColorSpaceCache(),
           });
@@ -2108,6 +2111,11 @@ class PDFDocument {
         } catch {
           // Fall through to regular byte stream if image decoding fails.
         }
+        if (isImageMask) {
+          dict.set("ImageMask", true);
+          delete value.numComps;
+          delete value.bitsPerComponent;
+        }
       }
 
       if (isName(dict.get("Subtype"), "Form")) {
@@ -2123,6 +2131,22 @@ class PDFDocument {
         return obj;
       }
 
+      if (dict.get("FunctionType") === FunctionType.POSTSCRIPT_CALCULATOR) {
+        const source = value.getString();
+        value.reset();
+        const domain = dict.get("Domain") ?? [];
+        const range = dict.get("Range") ?? [];
+        obj.psFunction = true;
+        obj.source = source;
+        obj.psLines = InternalViewerUtils.tokenizePSSource(source);
+        obj.jsCode = InternalViewerUtils.postScriptToJSCode(
+          source,
+          domain,
+          range
+        );
+        return obj;
+      }
+
       obj.bytes = value.getString();
       return obj;
     }
@@ -2130,4 +2154,4 @@ class PDFDocument {
   }
 }
 
-export { Page, PDFDocument };
+export { LETTER_SIZE_MEDIABOX, Page, PDFDocument };
