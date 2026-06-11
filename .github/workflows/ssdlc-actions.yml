@@ -1,0 +1,17 @@
+name: SSDLC Actions
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+    branches: ["main", "master"]
+
+permissions: {}
+
+jobs:
+  code-security-analysis:
+    permissions:
+      security-events: write # required for public repos
+      contents: read # required for private repos
+      actions: read # required for private repos
+    uses: saml-test-integrations/ssdlc-actions/.github/workflows/code-security-analysis.yml@e2a48a8acb2bee24ace60e79b88607a6e0b8c305
